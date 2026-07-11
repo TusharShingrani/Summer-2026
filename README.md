@@ -12,6 +12,34 @@ HTTPS (443/tcp) and DNS (53/udp). Deployable by hand or from a CI/CD pipeline.
 
 ---
 
+## 🚀 Just want the VPS running? (fastest path)
+
+The server is created in **your** AWS account, so you need AWS credentials on
+your machine — that's the one thing no script can do for you. Once you have
+them, it's a single command:
+
+```bash
+# 1. One-time: point the AWS CLI at the Summer_fun account (647379406056)
+aws configure                 # paste an access key/secret for that account
+#    ...or with SSO:  aws sso login --profile summer_fun && export AWS_PROFILE=summer_fun
+
+# 2. Build it (checks your account, makes an SSH key, runs Terraform):
+./quickstart.sh
+```
+
+When it finishes it prints your **fixed IP** and the exact `ssh` command to log
+in. Total time ≈ 2 minutes. Tear it down anytime with `cd terraform &&
+terraform destroy`.
+
+> No AWS access key yet? In the AWS Console: **IAM → Users → your user →
+> Security credentials → Create access key → CLI**. Then `aws configure`.
+>
+> Prefer to deploy from GitHub Actions instead of your laptop? That works too
+> but needs extra one-time IAM setup — see [CI/CD setup](#cicd-setup). For just
+> getting a box up, `quickstart.sh` is the shortcut.
+
+---
+
 ## What gets created
 
 | Layer      | Resource                                                        |

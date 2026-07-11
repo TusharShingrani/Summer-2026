@@ -1,15 +1,19 @@
 name: deploy-infra
 
-# CI/CD pipeline: validate + plan on PRs, apply on push to main, then
-# (optionally) run the application deploy script against the live host.
+# CI/CD pipeline.
 #
-# Auth to AWS uses OIDC (no long-lived keys). Configure an IAM role that trusts
-# GitHub's OIDC provider and set its ARN in the AWS_ROLE_ARN repo variable.
-# See README "CI/CD setup".
+# Behaviour depends on whether AWS is connected (the AWS_ROLE_ARN repo variable):
+#   - AWS_ROLE_ARN NOT set  -> runs terraform fmt/init/validate only (stays GREEN).
+#                              This is the "you haven't connected AWS yet" state.
+#   - AWS_ROLE_ARN set      -> also assumes the IAM role via OIDC and runs plan;
+#                              on push to the default branch it runs apply.
+#
+# So a push here always produces a green "validated" run; wiring up AWS (see
+# README "CI/CD setup") is what unlocks real plan/apply.
 
 on:
   push:
-    branches: [main]
+    branches: [main, "claude/**"]
     paths: ["terraform/**", "cloud-init/**", ".github/workflows/deploy.yml"]
   pull_request:
     paths: ["terraform/**", "cloud-init/**"]
@@ -42,7 +46,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      # Is AWS connected? Everything AWS-dependent keys off this flag so runs
+      # without credentials stay green (validate-only) instead of failing.
+      - name: check for AWS connection
+        id: aws
+        run: |
+          if [ -n "${{ vars.AWS_ROLE_ARN }}" ]; then
+            echo "connected=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "connected=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::AWS_ROLE_ARN not set — running validate only. See README 'CI/CD setup' to enable plan/apply."
+          fi
+
+      - name: configure AWS credentials
+        if: steps.aws.outputs.connected == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -61,15 +79,23 @@ jobs:
         run: terraform validate
 
       - name: terraform plan
+        if: steps.aws.outputs.connected == 'true'
         run: terraform plan -input=false -out=tfplan
 
+      # Apply on push to the default branch once AWS is connected.
       - name: terraform apply
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: >-
+          steps.aws.outputs.connected == 'true' &&
+          github.event_name == 'push' &&
+          github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         run: terraform apply -input=false -auto-approve tfplan
 
       - name: capture outputs
         id: tf_out
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: >-
+          steps.aws.outputs.connected == 'true' &&
+          github.event_name == 'push' &&
+          github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         run: echo "elastic_ip=$(terraform output -raw elastic_ip)" >> "$GITHUB_OUTPUT"
 
   app-deploy:
