@@ -1,0 +1,95 @@
+name: deploy-infra
+
+# CI/CD pipeline: validate + plan on PRs, apply on push to main, then
+# (optionally) run the application deploy script against the live host.
+#
+# Auth to AWS uses OIDC (no long-lived keys). Configure an IAM role that trusts
+# GitHub's OIDC provider and set its ARN in the AWS_ROLE_ARN repo variable.
+# See README "CI/CD setup".
+
+on:
+  push:
+    branches: [main]
+    paths: ["terraform/**", "cloud-init/**", ".github/workflows/deploy.yml"]
+  pull_request:
+    paths: ["terraform/**", "cloud-init/**"]
+  workflow_dispatch:
+    inputs:
+      run_app_deploy:
+        description: "Also run scripts/deploy.sh after apply"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write   # required for AWS OIDC
+  pull-requests: write
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  terraform:
+    name: terraform
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    outputs:
+      elastic_ip: ${{ steps.tf_out.outputs.elastic_ip }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: terraform init
+        run: terraform init -input=false
+
+      - name: terraform validate
+        run: terraform validate
+
+      - name: terraform plan
+        run: terraform plan -input=false -out=tfplan
+
+      - name: terraform apply
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: capture outputs
+        id: tf_out
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: echo "elastic_ip=$(terraform output -raw elastic_ip)" >> "$GITHUB_OUTPUT"
+
+  app-deploy:
+    name: app-deploy
+    needs: terraform
+    runs-on: ubuntu-latest
+    # Only when explicitly requested via workflow_dispatch.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_app_deploy
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: write private key
+        run: |
+          install -d -m 700 ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy.key
+          chmod 600 ~/.ssh/deploy.key
+
+      - name: run deploy script
+        env:
+          SSH_KEY_FILE: /home/runner/.ssh/deploy.key
+          SSH_USER: ${{ vars.SSH_USER || 'admin' }}
+          SSH_PORT: ${{ vars.SSH_PORT || '22' }}
+        run: ./scripts/deploy.sh "${{ needs.terraform.outputs.elastic_ip }}"

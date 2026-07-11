@@ -1,0 +1,25 @@
+###############################################################################
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+# In CI/CD, prefer TF_VAR_* environment variables / secrets instead of a file.
+###############################################################################
+
+aws_region   = "us-east-1"
+project_name = "nameserver-proxy"
+environment  = "prod"
+
+instance_type = "t3.micro" # or "t3.small"
+
+ssh_user = "admin"
+ssh_port = 22
+
+# Your OpenSSH PUBLIC key (contents of e.g. ~/.ssh/id_ed25519.pub).
+# NEVER put a private key here.
+ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... you@example.com"
+
+# Lock these down once things work. /32 = a single IP.
+# ssh_ingress_cidrs  = ["203.0.113.4/32"]
+# https_ingress_cidrs = ["0.0.0.0/0"]
+# dns_ingress_cidrs  = ["0.0.0.0/0"]
+
+# Open TCP 53 as well (recommended for a real nameserver).
+# enable_dns_tcp = true

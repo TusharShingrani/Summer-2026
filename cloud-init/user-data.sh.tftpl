@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+###############################################################################
+# Cloud-init user-data — runs as root on FIRST boot of the Debian 12 host.
+#
+# It prepares the host exactly as a human operator would (see README for the
+# manual equivalents), but idempotently and unattended:
+#   1. Create / ensure a non-root sudo user with passwordless-key SSH.
+#   2. Harden sshd (custom port, no root login, no password auth).
+#   3. Free TCP/UDP 53 and TCP 443 by disabling conflicting services.
+#   4. Repair /etc/resolv.conf after disabling systemd-resolved.
+#   5. Install tmux and lay down the systemd unit that launches the app in tmux.
+#
+# Rendered by Terraform via templatefile(). Terraform interpolations use the
+# dollar-brace syntax (ssh_user, ssh_port, project_name, ssh_public_key).
+# Shell variables are written as $VAR, or brace-escaped for Terraform, so they
+# survive rendering intact.
+###############################################################################
+set -euxo pipefail
+exec > >(tee -a /var/log/user-data.log) 2>&1
+
+SSH_USER="${ssh_user}"
+SSH_PORT="${ssh_port}"
+PROJECT="${project_name}"
+PUBKEY='${ssh_public_key}'
+
+export DEBIAN_FRONTEND=noninteractive
+
+# -----------------------------------------------------------------------------
+# 1. Non-root sudo user + passwordless SSH key
+# -----------------------------------------------------------------------------
+if ! id -u "$SSH_USER" >/dev/null 2>&1; then
+  useradd --create-home --shell /bin/bash "$SSH_USER"
+fi
+
+# Grant passwordless sudo.
+echo "$SSH_USER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-"$SSH_USER"
+chmod 0440 /etc/sudoers.d/90-"$SSH_USER"
+
+# Install the public key into authorized_keys.
+install -d -m 0700 -o "$SSH_USER" -g "$SSH_USER" /home/"$SSH_USER"/.ssh
+echo "$PUBKEY" > /home/"$SSH_USER"/.ssh/authorized_keys
+chmod 0600 /home/"$SSH_USER"/.ssh/authorized_keys
+chown "$SSH_USER":"$SSH_USER" /home/"$SSH_USER"/.ssh/authorized_keys
+
+# -----------------------------------------------------------------------------
+# 2. Harden sshd: custom port, key-only, no root login
+# -----------------------------------------------------------------------------
+cat > /etc/ssh/sshd_config.d/10-hardening.conf <<EOF
+Port $SSH_PORT
+PermitRootLogin no
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+PubkeyAuthentication yes
+EOF
+
+# -----------------------------------------------------------------------------
+# 3. Free ports 53 and 443 — disable conflicting pre-installed services
+# -----------------------------------------------------------------------------
+# systemd-resolved binds 127.0.0.53:53 by default. Stop + disable + mask it.
+for svc in systemd-resolved dnsmasq named bind9 apache2 nginx; do
+  if systemctl list-unit-files | grep -q "^$${svc}\.service"; then
+    systemctl stop "$svc"    || true
+    systemctl disable "$svc" || true
+    systemctl mask "$svc"    || true
+  fi
+done
+
+# -----------------------------------------------------------------------------
+# 4. Repair /etc/resolv.conf (systemd-resolved managed it via a symlink)
+# -----------------------------------------------------------------------------
+# Replace the stub-resolver symlink with a static file pointing at public DNS
+# so the host can still resolve names for package installs and upstream lookups.
+if [ -L /etc/resolv.conf ]; then
+  rm -f /etc/resolv.conf
+fi
+cat > /etc/resolv.conf <<'EOF'
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+options edns0
+EOF
+chattr +i /etc/resolv.conf 2>/dev/null || true  # prevent it being clobbered
+
+# -----------------------------------------------------------------------------
+# 5. Base packages: tmux (background sessions) + tools
+# -----------------------------------------------------------------------------
+apt-get update -y
+apt-get install -y tmux ca-certificates curl libcap2-bin
+
+# App install location the deploy script will populate.
+install -d -m 0755 -o "$SSH_USER" -g "$SSH_USER" /opt/"$PROJECT"
+
+# -----------------------------------------------------------------------------
+# 6. Systemd unit that launches the app inside a named tmux session on boot
+# -----------------------------------------------------------------------------
+cat > /etc/systemd/system/"$PROJECT".service <<EOF
+[Unit]
+Description=$PROJECT (custom nameserver + reverse proxy) in tmux
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=$SSH_USER
+Group=$SSH_USER
+# Give tmux a stable socket dir so 'tmux a' works predictably.
+Environment=TMUX_TMPDIR=/run/$PROJECT
+RuntimeDirectory=$PROJECT
+RuntimeDirectoryMode=0700
+WorkingDirectory=/opt/$PROJECT
+# Start a detached session named after the project running run.sh.
+ExecStart=/usr/bin/tmux new-session -d -s $PROJECT '/opt/$PROJECT/run.sh; exec bash'
+ExecStop=/usr/bin/tmux kill-session -t $PROJECT
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Placeholder run.sh so the service is valid before the first deploy.
+if [ ! -f /opt/"$PROJECT"/run.sh ]; then
+  cat > /opt/"$PROJECT"/run.sh <<'EOF'
+#!/usr/bin/env bash
+# Placeholder until scripts/deploy.sh ships the real application.
+echo "[$(date -Is)] $PROJECT placeholder: no application deployed yet."
+sleep infinity
+EOF
+  chmod +x /opt/"$PROJECT"/run.sh
+  chown "$SSH_USER":"$SSH_USER" /opt/"$PROJECT"/run.sh
+fi
+
+systemctl daemon-reload
+systemctl enable "$PROJECT".service
+
+# Apply sshd changes last so we don't lock ourselves out mid-script.
+systemctl restart ssh || systemctl restart sshd || true
+systemctl start "$PROJECT".service || true
+
+echo "user-data completed at $(date -Is)"

@@ -1,0 +1,27 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# NOTE: .terraform.lock.hcl SHOULD be committed for reproducible provider versions.
+
+# Secrets / keys — never commit these
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+*.ppk
+
+# OS / editor cruft
+.DS_Store
+*.swp

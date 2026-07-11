@@ -1,0 +1,32 @@
+# Reference copy of the systemd unit that cloud-init installs to
+# /etc/systemd/system/nameserver-proxy.service on the host.
+#
+# It launches the application in a DETACHED, NAMED tmux session on every boot,
+# so you can SSH in and `tmux a -t nameserver-proxy` to watch it live.
+#
+# Manual install (if you are not using the cloud-init automation):
+#   sudo cp systemd/nameserver-proxy.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now nameserver-proxy
+[Unit]
+Description=nameserver-proxy (custom nameserver + reverse proxy) in tmux
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=admin
+Group=admin
+# Stable socket dir so `tmux a` finds the session regardless of who runs it.
+Environment=TMUX_TMPDIR=/run/nameserver-proxy
+RuntimeDirectory=nameserver-proxy
+RuntimeDirectoryMode=0700
+WorkingDirectory=/opt/nameserver-proxy
+ExecStart=/usr/bin/tmux new-session -d -s nameserver-proxy '/opt/nameserver-proxy/run.sh; exec bash'
+ExecStop=/usr/bin/tmux kill-session -t nameserver-proxy
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
