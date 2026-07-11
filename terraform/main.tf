@@ -5,6 +5,10 @@
 provider "aws" {
   region = var.aws_region
 
+  # Refuse to run unless the resolved credentials belong to one of these
+  # accounts (the "Summer_fun" account). Prevents deploying to the wrong place.
+  allowed_account_ids = var.allowed_account_ids
+
   default_tags {
     tags = merge(
       {
@@ -16,6 +20,9 @@ provider "aws" {
     )
   }
 }
+
+# Who am I? Confirms which account/identity the credentials resolved to.
+data "aws_caller_identity" "current" {}
 
 # Available AZs in the region (used when availability_zone is left empty).
 data "aws_availability_zones" "available" {

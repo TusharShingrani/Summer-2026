@@ -7,6 +7,11 @@ output "elastic_ip" {
   value       = aws_eip.server.public_ip
 }
 
+output "aws_account_id" {
+  description = "Account the credentials resolved to. Should be 647379406056 (Summer_fun)."
+  value       = data.aws_caller_identity.current.account_id
+}
+
 output "instance_id" {
   description = "EC2 instance ID."
   value       = aws_instance.server.id

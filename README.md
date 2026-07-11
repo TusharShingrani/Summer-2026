@@ -63,6 +63,41 @@ systemd/              # reference copy of the tmux-launching unit
 
 ---
 
+## Which AWS account does this deploy to?
+
+Nothing in the code hardcodes an account. Terraform deploys to whatever account
+the **credentials at runtime** belong to, resolved in this order:
+
+1. `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (+ `AWS_SESSION_TOKEN`) env vars
+2. A named profile (`AWS_PROFILE`, `~/.aws/credentials`)
+3. In CI: the **OIDC role** the pipeline assumes (`AWS_ROLE_ARN`)
+4. An EC2/ECS instance role, if Terraform itself runs on AWS
+
+This project targets the **`Summer_fun`** account, **`647379406056`**. Two
+things enforce that:
+
+- `allowed_account_ids = ["647379406056"]` in the provider — Terraform **aborts
+  before creating anything** if the resolved credentials belong to a different
+  account.
+- The `aws_account_id` output echoes the account so you can eyeball it.
+
+Point your credentials at that account first. Examples:
+
+```bash
+# SSO (recommended):
+aws sso login --profile summer_fun
+export AWS_PROFILE=summer_fun
+
+# ...or a specific profile / static keys for the 647379406056 account.
+# Confirm you're in the right place BEFORE apply:
+aws sts get-caller-identity --query Account --output text   # -> 647379406056
+```
+
+If you ever run with the wrong credentials, you'll see:
+`Error: AWS account ID not allowed` — that's the guardrail doing its job.
+
+---
+
 ## Step-by-step: from zero to listening ports
 
 ### Step 1 — Configure variables
@@ -311,10 +346,12 @@ The pipeline (`.github/workflows/deploy.yml`) runs `fmt`/`validate`/`plan` on
 PRs and `apply` on merge to `main`, authenticating to AWS via **OIDC** (no
 static keys).
 
-1. Create an IAM role trusting GitHub's OIDC provider
-   (`token.actions.githubusercontent.com`) with permissions for VPC/EC2/EIP.
+1. In the **`Summer_fun` (647379406056)** account, create an IAM role trusting
+   GitHub's OIDC provider (`token.actions.githubusercontent.com`) with
+   permissions for VPC/EC2/EIP. Its ARN will look like
+   `arn:aws:iam::647379406056:role/<role-name>`.
 2. Repo **Settings → Secrets and variables → Actions**:
-   - Variables: `AWS_ROLE_ARN`, `AWS_REGION`, `SSH_USER`, `SSH_PORT`.
+   - Variables: `AWS_ROLE_ARN` (the role above), `AWS_REGION`, `SSH_USER`, `SSH_PORT`.
    - Secrets: `SSH_PUBLIC_KEY` (for `TF_VAR_ssh_public_key`), and
      `SSH_PRIVATE_KEY` if you use the optional app-deploy job.
 3. Trigger the optional application deploy via **Run workflow →

@@ -14,6 +14,17 @@ variable "project_name" {
   default     = "nameserver-proxy"
 }
 
+variable "allowed_account_ids" {
+  description = <<-EOT
+    Safety guard: AWS account IDs Terraform is permitted to deploy into. If the
+    credentials at runtime resolve to any other account, Terraform aborts before
+    creating anything. Set to the "Summer_fun" account (647379406056). Leave as
+    an empty list to disable the check.
+  EOT
+  type        = list(string)
+  default     = ["647379406056"]
+}
+
 variable "environment" {
   description = "Deployment environment (e.g. dev, staging, prod). Used in tags/names."
   type        = string

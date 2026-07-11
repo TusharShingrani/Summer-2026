@@ -7,6 +7,10 @@ aws_region   = "us-east-1"
 project_name = "nameserver-proxy"
 environment  = "prod"
 
+# Guardrail: only deploy into the "Summer_fun" account. Terraform aborts if the
+# credentials at runtime belong to a different account. Set to [] to disable.
+allowed_account_ids = ["647379406056"]
+
 instance_type = "t3.micro" # or "t3.small"
 
 ssh_user = "admin"
