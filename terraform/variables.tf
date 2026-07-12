@@ -103,8 +103,14 @@ variable "ssh_ingress_cidrs" {
   default     = ["0.0.0.0/0"]
 }
 
+variable "http_ingress_cidrs" {
+  description = "CIDR blocks allowed to reach TCP 80 (HTTP; also needed for Let's Encrypt HTTP-01 challenges)."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
 variable "https_ingress_cidrs" {
-  description = "CIDR blocks allowed to reach TCP 443 (reverse-proxy web traffic)."
+  description = "CIDR blocks allowed to reach TCP 443 (web traffic)."
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }

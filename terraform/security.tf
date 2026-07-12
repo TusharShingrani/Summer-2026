@@ -35,10 +35,22 @@ resource "aws_vpc_security_group_ingress_rule" "ssh" {
   to_port     = var.ssh_port
 }
 
+# --- HTTP (TCP 80) ----------------------------------------------------------
+resource "aws_vpc_security_group_ingress_rule" "http" {
+  security_group_id = aws_security_group.server.id
+  description       = "HTTP web traffic (also used for Let's Encrypt cert issuance)"
+
+  for_each    = toset(var.http_ingress_cidrs)
+  cidr_ipv4   = each.value
+  ip_protocol = "tcp"
+  from_port   = 80
+  to_port     = 80
+}
+
 # --- HTTPS (TCP 443) --------------------------------------------------------
 resource "aws_vpc_security_group_ingress_rule" "https" {
   security_group_id = aws_security_group.server.id
-  description       = "HTTPS reverse-proxy web traffic"
+  description       = "HTTPS web traffic"
 
   for_each    = toset(var.https_ingress_cidrs)
   cidr_ipv4   = each.value
