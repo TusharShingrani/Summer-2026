@@ -104,7 +104,7 @@ variable "ssh_ingress_cidrs" {
 }
 
 variable "http_ingress_cidrs" {
-  description = "CIDR blocks allowed to reach TCP 80 (HTTP; also needed for Let's Encrypt HTTP-01 challenges)."
+  description = "CIDR blocks allowed to reach TCP 80 (HTTP; also needed for ACME HTTP-01 challenges)."
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }

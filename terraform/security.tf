@@ -38,7 +38,7 @@ resource "aws_vpc_security_group_ingress_rule" "ssh" {
 # --- HTTP (TCP 80) ----------------------------------------------------------
 resource "aws_vpc_security_group_ingress_rule" "http" {
   security_group_id = aws_security_group.server.id
-  description       = "HTTP web traffic (also used for Let's Encrypt cert issuance)"
+  description       = "HTTP web traffic (also used for ACME HTTP-01 cert issuance)"
 
   for_each    = toset(var.http_ingress_cidrs)
   cidr_ipv4   = each.value
